@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Credentials - never commit these
+*.json.key
+service-account*.json
+credentials.json
+.env
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local data pulls
+data/*.csv
+data/*.parquet
+!data/profile_components.json
