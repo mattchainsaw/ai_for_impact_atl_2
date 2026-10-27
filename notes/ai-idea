@@ -1,0 +1,137 @@
+1. The idea, in one sentence
+ATL RescueGuard – a self-correcting food dispatcher that owns a dispatch ticket from posting to hold, checks its own work, splits loads that don't fit, and re-plans when someone says no.
+Not a search box. Not a list of pantries. A ticket that goes through versions, gets approved by a human, and gets locked so it can't be double-booked.
+2. The problem
+A Metro Atlanta coordinator has hours, not days, to move expiring food. If she trusts meaning search alone, she will:
+Send fresh food to a pantry with no fridge, because its bio begs for fresh greens
+Send recalled food to families, because no one checked
+Waste half a farm load, because no single pantry can fit it all
+Always give food to the biggest pantry with the best fridge, while small high-need pantries never win
+That's not a search problem. It's a checking, splitting, fairness, and holding problem.
+3. Who it's for, and what track
+Primary track: Track 1 – Retail & grocer rescue
+Small, perishable, clock-ticking offers. That's the main demo, and the track to name early in the deck, because judges score you against the track you chose.
+Track 2 – Farm surplus, and Track 3 – Critical essentials (diapers / formula), are supporting modes on the same system, not three separate products. The starter allows combining tracks.
+Three personas, one ticket:
+Coordinator / dispatcher – main user, internal staff. Runs the desk, approves plans, sees everything.
+Donor – supplies it. Posts an offer, with pickup address and deadline, tracks its own offer only.
+Recipient pantry – wants it / receives it. Sees only offers made to it, confirms or declines in one tap, updates its own cold storage / capacity.
+End beneficiaries – people who need food – don't log in. They benefit indirectly, via their local pantry getting the food. That's important: we never collect their personal data.
+4. The demo story – one afternoon, three postings
+2:10pm – Posting 1: Grocer spinach, Track 1
+"10 crates spinach, harvested yesterday, needs cold storage, must leave by 8pm" – 6 hours left.
+Supervisor creates Ticket RG-1042, Plan v1 DRAFT.
+Matcher finds candidates by meaning, not keywords.
+Constraint worker drops the bad ones with plain reasons, including the #1 meaning match with no cold storage.
+Planner says the best survivor can only take 4 crates, so it proposes a split, calculated in code.
+Checker rejects Plan v1 – it wastes 6 crates and serves a low-need area while a high-need area nearby gets zero.
+Fixer rewrites it to Plan v2 – split, verified, equity-checked.
+Coordinator approves v2. Firestore starts a 10-minute hold. No other driver can double-book those crates.
+Match Brief is generated, with top 3 options, not just top 1, because "they said no" is normal.
+Bonus in the same posting – FDA safety brake
+Same grocer also offers deli meat. Before matching, the system checks openFDA recalls, finds a match, and shows: "HALTED BY FDA SAFETY GUARDRAIL – meat blocked, spinach proceeds." If the FDA check fails, it says "not checked", never "clear".
+Bonus in the same posting – Tie-breaker
+Two pantries tie exactly on capability. The system breaks the tie, with numbers shown: distance first, then tract need (poverty + no-vehicle), then recent donation history – who hasn't been served recently wins.
+Decline – why a ticket matters
+Pantry B declines. Supervisor doesn't restart. It marks B declined, promotes Pantry C, keeps the hold on A, creates Plan v3, coordinator approves v3, donor sees only the final pickup plan. Chat and screen both update from the same ticket.
+3:00pm – Posting 2: Farm load, Track 2
+12 pallets of potatoes. No pantry fits it whole. Planner doesn't drop it – it builds a 3-stop split, 4+4+4, each within capacity, cold, window, and margin, calculated in the Code Execution sandbox, code + output shown.
+Essentials, Track 3, in the same afternoon
+Sealed formula and diapers. The shelf-life table has blank numbers for both – diapers aren't food, sealed formula is only tracked after opening. System says: "USDA shelf-life not applicable – falling back to donor window", never silent 0. And there's no product called exactly "Spinach" in that table – it's a subtitle under "Lettuce". The system finds it, uses the conservative end of the range, and donor deadline still beats the book.
+4:00pm – Bonus showstopper: Desert to green
+A donor offers fresh milk near South Atlanta. The matcher has to send it 12 miles away, because every local pantry lacks cold storage. The map shows high-poverty, low-car areas with zero cold-storage pantries within 5 km glowing red – a Cold-Chain Desert.
+A local church onboards live: "We just installed a walk-in cooler, we can take 3 pallets on Tuesdays." Agent writes it to BigQuery, embeds its profile so meaning search can find it, re-runs the match, the desert flips to green, milk routes into the neighbourhood that needed it most. That pantry is labelled simulated in the demo, location is ZIP-area, not a precise street address.
+5. The workflow, in clicks
+New posting – coordinator / donor enters: what, how much, cold or not, deadline, pickup address
+Matches – ranked list, with plain reasons for each fit and each drop, and time margin: "6 hours left, collect in 2, margin 4 hours"
+Check – if v1 wastes food or misses high-need areas, it's rejected on screen, fixed split appears as v2
+Approve – coordinator clicks Approve. That starts the 10-minute hold, it doesn't auto-send trucks
+Confirm / Decline – pantry confirms in one tap, or declines and the ticket re-plans to the next pantry
+Brief sent – coordinator gets a ready-to-send message: who, what, how much, by when, next two backups, plus a Guardrails callout (see below)
+Queue is sorted by expiry, not by posting order. A 2-hour milk offer outranks a 2-day potato offer, even if potatoes arrived first.
+6. The agents, and what each one does
+Core, 9 agents. Bonus, 1 more.
+Supervisor – dispatcher brain. Owns the ticket, versions, routing, approvals, holds, loop guards. Never ranks or checks itself, it routes and enforces: no plan without a check, no approval without a human, max 3 fixer tries then escalate.
+Matcher – meaning worker. Turns a messy posting into a meaning vector, searches pantry profiles by meaning via Gemini embeddings + vector search, genuinely called, not keyword search. Returns candidates only, never decides.
+Constraint + Last-Mile worker – reality worker. Deterministic checks: cold / frozen fit, capacity, max pallets, pickup window vs hours left, service day, can they distribute before spoiling, self-collect with refrigerated transport vs needs a cold driver, loading dock or hand-unload, dietary / cultural hard constraints (halal, pork-free, infant, medically restricted). Columns beat text – contradiction = flag for human check, not a guess.
+Recall Guard – safety worker. Checks openFDA before matching. Recall match = halt that item. Check fails = "not checked", never "clear".
+Planner / Splitter – maths worker. Builds plans deterministically, in code. Whole load fits = send whole. Doesn't fit = split across 2-3 verified pantries. Essentials use different rules: no cold chain, but safety / size / donor window matter more.
+Checker / Auditor – independent veto. Does not help make the plan, it tries to kill it: waste? unsafe fit? low-need skew? concentration (same pantries served yesterday, others zero)? donor deadline ignored? If yes: REJECTED, with reason, shown on screen.
+Fixer – editor. Rewrites only what Checker flagged, max 3 tries, same plan twice or 3 fails = escalate to human. No infinite loop.
+Impact & Fairness worker – scorekeeper. Calculates Impact Score before approval, and keeps the fairness ledger: who got what, when, confirmed / declined / no-show. Next match boosts pantries not served recently, so big pantries don't win every time. Unknown history = neutral, not a penalty.
+Guide – talker, everywhere. Floating assistant on every screen, in all three role views. Knows the ticket – session, ticket, plan version, step, role, hold status. Proposes action cards, never executes alone. A chat "yes" is a proposal until the approve call succeeds.
+Onboarding / Intake – bonus worker. New pantry joins in 60 seconds, writes to BigQuery, embeds profile into both recipient and embeddings tables, re-runs match, flips a desert to green.
+7. Conversational agent – seamless, and persona handoff
+UI ↔ Chat seamless, like SurgeGuard:
+One supervisor state in Firestore is the single source of truth. UI → Chat: every chat message carries session_id, ticket_id, posting_id, plan_version, step, role, hold_status – Guide already knows which ticket you're on, you don't re-type it. Chat → UI: Guide returns answer + state_update, UI re-renders ticket, cards, clock, hold timer, impact panel from that same state. Chat "yes" alone does nothing until Approve succeeds. Mid-ticket switch must be acknowledged. Unfinished DRAFT shows as unfinished. Disconnect = resume by ticket ID, fresh restart is acceptable demo fallback, persistence itself is not optional for audit / holds / versions.
+What Guide can do:
+Answer from the already-checked ticket with sources: who, why them, why not the big downtown pantry, who's next after a decline, how long does spinach last, can they collect themselves or need a driver, whose neighbourhood does this help, what's the impact of v2 vs v1, who got served this week. Guide you step-by-step, ask for exactly the missing fields if a posting is vague, stop after 3 clarifications with no new info and fall back to form / human. Propose actions via one card per action: Approve, Promote Next, Re-run Match, Check Recall, Onboard. For one-off data questions, use guarded read-only MCP query, show SQL + job ID, never feed that answer back into ranking.
+What Guide cannot do alone:
+Approve, send, dispatch, or book a truck. Change an approved plan without a new version, Checker pass, and human approval. Override cold, recall, hold, or capacity. Invent capacity, address, or cold storage – unknown is "unrecorded", not a guess. Access personal contacts or end-beneficiary personal data. Guarantee road time without Routes. Auto-approve on silence.
+Persona handoff – the extra layer this time:
+Ticket moves: Donor posts → Coordinator reviews → Recipient confirms → Coordinator + Donor notified. Each transition is a state change, with a version record: who, in which role, when, what changed.
+Coordinator sees everything: all matches, checker reasons, impact, fairness.
+Donor sees only its own offer: matched pantries, hold status, final pickup plan – not other donors, not other pantries' scores.
+Recipient sees only offers made to it: what, how much, by when, why it fits, confirm / decline – not other pantries' allocations, not coordinator's internal notes.
+Decline goes back to coordinator, not directly to donor. Donor sees "matching updated", not internal re-plan details, unless coordinator shares them. Cancel releases all holds, recipients get "offer withdrawn".
+Role switching re-filters in the backend, not just in the UI, and Guide acknowledges the switch: "Switching to Recipient view, South Atlanta Food Hub, same ticket RG-1042, your offer is 6 crates, pending approval." Guide never reveals another persona's private view in chat.
+8. Need, fairness, and "does the recipient deserve it?"
+We don't judge moral deserve. We measure need + fit + fairness, and show it, coordinator decides.
+Need – from tract_demographics:
+Table has geo_id, tract_lat/lon, total_pop, median_income, poverty_rate, no_vehicle_rate, assistance_rate. No race columns.
+Need = 0.6 × poverty + 0.4 × no-vehicle, for that pantry's tract. Missing tract = unknown, fallback to weekly households, flagged – never treated as zero.
+Fit first, need second: a high-need pantry with no fridge still can't take fresh food, but among viable pantries, higher need wins, and on a tie, need breaks it.
+Fairness over time:
+Allocation ledger prevents concentration. Pantry served 5 times this week vs pantry served 0 times – the 0-times pantry gets a boost next time, even if it's slightly smaller. Otherwise logistics wins every time: big pantries with detailed profiles and docks win, small high-need pantries never win, and the equity audit just proves it.
+Tract demographics, in full:
+Used in 5 places: need score in ranking, equity audit after match (chosen tracts vs metro average – did food go where need is, or where docks are?), desert detection (poverty >30% + no-vehicle >40% + zero cold pantries within 5 km = red), Impact Score Equity component, and tie-breaker.
+Not used for: eligibility alone, ranking by income alone, or individual need – it's area-level, not a headcount, and we don't sum overlapping groups as unique people.
+Join gap to verify in Phase 1: recipients have ZIP-centroid lat/lon, not a tract_id, so join is nearest tract by distance, left join so missing tract doesn't drop a pantry. That join method must be verified against the actual Atlanta tables, not assumed.
+9. Impact Score – live, before approval
+Not one black-box number after the fact. Breakdown, before you click Approve, v1 vs v2 vs do-nothing:
+Need – 30: households served, weighted by poverty + no-vehicle in their tracts
+Food Rescued – 25: crates placed vs offered, spoilage avoided. 10/10 = full, 4/10 with 6 wasted = low, even if the 4 went to a great pantry
+Equity – 25: share to high-need tracts vs metro average, plus deserts cleared
+Reliability – 20: cold fit, recall cleared, time margin positive, pantry confirmed before
+Example, illustrative: v1 Impact 52 – Need 70, Rescue 30 (6 wasted), Equity 40, Reliability 80. v2 split Impact ~89 – Need 88, Rescue 100 (10/10), Equity 82, Reliability 85. Do nothing: 0, 10 crates spoiled by 8pm.
+Cumulative dashboard, same score over time: total crates rescued, estimated households reached (labelled estimated, not unique people), deserts cleared / still red, waste avoided, decline rate, top-3 pantries' share vs rest – if top 3 creep to 80%, flag it.
+10. Planted traps – Guardrail Transparency, core, not bonus
+The corpus has 9 planted teaching cases, flagged profile_source = 'planted' – invented, adversarial rows to catch naive matchers. 1 decoy, 1 contradiction, 2 genuine ties, 5 vocabulary-mismatch.
+Greenline Community Pantry – decoy: Semantic #1 for fresh greens, cold_storage = 'none'. Caught: dropped in red, "meaning is not capacity."
+Harborview Neighbors Trust – contradiction: Bio says walk-in freezer in one sentence, "single shelf in a shared cupboard and no freezer" in the next. Caught: columns win, flagged "Needs human check", not auto-matched.
+Cedar Street & Maple Street Produce Alliance – genuine ties: Identical operations, different words. Caught: tie-breaker – distance, then tract equity, then recent history, with numbers shown.
+5 vocabulary-mismatch: Should match, but words differ completely – keyword search would miss them, meaning search finds them. Proof vector search is genuinely used.
+Every Match Brief must include a callout, named exactly:
+Safety & Capacity Guardrails: Why Top Semantic Matches Were Filtered
+Semantic ranking before filter → ranking after filter, with reason and evidence for each drop / flag / tie-break.
+That's a Rigor (25) + Technical (30) booster: judges explicitly ask "show me a case where the search was wrong" – if your top match is always right, you probably aren't filtering.
+Caution: verify those exact names in Atlanta first – query WHERE profile_source = 'planted' in the event project. Those names come from Chicago analysis; Atlanta should have a similar planted set at its metro centre, but don't put Chicago names in an Atlanta deck until the query confirms them. And label planted cases as starter teaching cases, not real pantries' actual fridge status.
+11. Last-mile, addresses, and Maps – honest limits
+Addresses we have:
+Recipients: street, city, state, zip, lat/lon = ZIP centroid, IRS org address, public, org only, no personal contacts. Show it in Brief and cards, link to Maps, label distance ZIP-area approximate.
+Surplus postings: no address, no lat/lon, just synthetic text. Donor enters pickup address at posting – that's new input, not starter data. Then we can match donor address vs recipient address.
+Tracts: area points, for need scoring, not for routing to a door.
+Last-mile we CAN do from starter fields:
+Self-collect vs needs driver (refrigerated_transport), loading dock vs hand-unload, max pallets, pickup window, service day, distance from ZIP centroids with travel buffer, margin calculation.
+We CANNOT do without adding data / APIs:
+Live driver fleet, van size / temperature, real road time / traffic, turn-by-turn multi-stop optimiser, GPS delivery confirmation. Those are stretch, not core, unless we add Maps Routes + driver data ourselves.
+Maps plan:
+Display: Leaflet + OpenStreetMap, free, no key
+Donor address → coordinates: Google Geocoding, once at posting, fallback to ZIP if it fails
+Drive time: Google Routes, top matches only, fallback to straight-line ZIP distance labelled "estimated, not road time", never "12 minutes to the door"
+Never store Maps phone / text / photos, only coordinates / drive time / place ID if used
+In the mock, Maps is simulated with ZIP-area distances and Maps links, not live Routes – real build wires Geocoding / Routes in a bonus phase, after core matcher / checker / hold works, so a pretty route to the wrong pantry is never the demo.
+12. What makes us stand apart
+User side:
+Ticket, not list. Three views, one ticket. Clock-first queue. Reasons, not ranks. Compare v1 vs v2 before approve. Decline in one tap, re-plan automatically. Desert to green, live. Low friction: donor <1 minute, pantry 1 tap, coordinator 1 click. Guardrails callout showing rejected #1, not just final winners.
+Backend intelligence:
+Separation of powers – meaning finds, maths decides fit, independent auditor tries to break the plan. Deterministic planner, calculations in code and shown, model doesn't guess numbers. Stateful – versions, transactional Firestore holds (BigQuery is wrong tool for a lock), declines and allocations remembered, system gets fairer over time. Time-aware and fairness-aware, equity audited after match, never race. Honest unknowns – unrecorded ≠ no, not-checked ≠ clear, ZIP distance ≠ road time, donor deadline beats book, columns beat text. Evidence trail – which search, which constraints killed which pantry, which checker rejected v1 and why, who approved v2, when hold started, what impact was at approval. Tools used visibly – managed BigQuery MCP for live queries, Code Execution for splits / margins, with SQL + job ID and code + output shown, not just mentioned.
+13. Next steps, in order
+Verify data in event project – Atlanta counts (~135 recipients, 10 postings, 661 shelf-life), planted cases actually in Atlanta, tract join method, Maps APIs enabled or not
+Matcher + Constraint – meaning search, hard filters, last-mile basic
+Checker / Fixer + Hold + Brief – v1 reject → v2 split, human approve, 10-min hold, Guardrails callout in every Brief
+Impact + Fairness – score before approve, allocation ledger, rotation boost
+Roles – Coordinator / Donor / Recipient views, same ticket, persona handoff contract, addresses both sides
+Maps bonus – Geocode donor, Routes top matches, fallback to ZIP distance
+Onboarding bonus – desert map + new pantry embed + re-match
+Deck / video – lead with Track 1, show v1 vs v2 impact, show a rejection, show a decline, show a desert cleared, label estimated / simulated / planted honestly
