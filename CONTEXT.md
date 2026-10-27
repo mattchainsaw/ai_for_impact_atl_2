@@ -31,17 +31,17 @@ Frontend contracts (later, outside this plan) --HTTP/JSON only--> Backend (Cloud
 
 ## Tables (name + key columns only — 29 total)
 - **A. Starter BigQuery `a4i_food` (4, read-only):**
-  1. `recipients` (`recipient_id INT64, name, zip_code, cold_storage, frozen_storage, loading_dock, refrigerated_transport, max_pallets, pickup_window_hours, weekly_households, populations_served, service_days, profile_text, profile_source, latitude, longitude`)
-  2. `surplus_postings` (`posting_id, track, posting_text, foodkeeper_product, storage_state, hours_available, shelf_life_hours, hours_remaining`)
-  3. `shelf_life` (`product_id, product_name, product_subtitle, keywords, category, refrigerated_hours, pantry_hours`)
-  4. `tract_demographics` (`geo_id STRING, tract_lat, tract_lon, total_pop, median_income, poverty_rate, no_vehicle_rate, assistance_rate`)
+  1. `recipients` (127 rows, `recipient_id INT64, name, zip_code, cold_storage, frozen_storage, loading_dock, refrigerated_transport, max_pallets, pickup_window_hours, weekly_households, populations_served, service_days, profile_text, profile_source, latitude, longitude`)
+  2. `surplus_postings` (10 rows, `posting_id, track, posting_text, foodkeeper_product, storage_state, hours_available, shelf_life_hours, hours_remaining`)
+  3. `shelf_life` (661 rows, `product_id, product_name, product_subtitle, keywords, category, refrigerated_hours, pantry_hours`)
+  4. `tract_demographics` (165 rows, `geo_id STRING 11-char, tract_lat, tract_lon, total_pop, median_income, poverty_rate, no_vehicle_rate, assistance_rate`)
 - **B. Team BigQuery `rescueguard_app` (6):**
-  5. `recipient_embeddings` (`recipient_id INT64, profile_text, embedding 3072d, embedded_status`)
-  6. `app_recipients` (`recipient_id INT64, name, cold_storage, max_pallets, verification_status, created_at`)
-  7. `recipient_overrides` (`override_id, recipient_id, changed_fields, parsed_dietary_flags, status, effective_date, approver_role`)
-  8. `v_all_recipients` (`recipient_id, effective columns + dietary_flags[]`, starter + verified app recipients)
-  9. `v_recipient_tract` (`recipient_id, tract_geo_id, poverty_rate, no_vehicle_rate, assistance_rate, tract_distance_km, tract_status`)
-  10. `v_rescue_deserts` (`geo_id, poverty_rate, no_vehicle_rate, cold_recipients_within_5km`)
+  5. `recipient_embeddings` (127 rows, `recipient_id INT64, profile_text, embedding ARRAY<FLOAT64> 3072d via AI.EMBED, embedded_status`)
+  6. `app_recipients` (`recipient_id INT64, name, cold_storage, max_pallets, verification_status PENDING|VERIFIED|DEMO_SIMULATED, created_at`)
+  7. `recipient_overrides` (`override_id, recipient_id, changed_fields, parsed_dietary_flags, status PENDING|VERIFIED|APPROVED, effective_date, approver_role`)
+  8. `v_all_recipients` (127 rows, starter + verified app recipients with latest approved overrides & parsed `dietary_flags[]`)
+  9. `v_recipient_tract` (127 rows, nearest tract via `ST_DISTANCE`, recipient-to-tract distance 0.22–6.24 km, fallback `weekly_households`, status `FOUND|UNKNOWN`)
+  10. `v_rescue_deserts` (0 rows under full cold domain; tracts with poverty > 0.30 & no_vehicle > 0.40 & cold_recipients_within_5km == 0)
 - **C. Firestore Live — tickets/plans/holds (9):**
   11. `postings` (`posting_id, donor_org_name, pickup_address, address_type=ORG_DOCK, coordinator_asserted_org_dock, quantity, quantity_unit, pallets_equivalent, donor_deadline, tenant_id`)
   12. `tickets` (`ticket_id, posting_id, posting_source, current_plan_id, resolved_deadline, resolved_shelf_life_hours, shelf_life_source, status, tenant_id`)
@@ -62,8 +62,8 @@ Frontend contracts (later, outside this plan) --HTTP/JSON only--> Backend (Cloud
   26. `users_roles` (`user_id, role, org_id, tenant_id`)
 - **E. BigQuery History `rescueguard_app` Sinks (3):**
   27. `audit_history` (`audit_id, ticket_id, plan_version, event_type, actor_role, timestamp, request_id, tenant_id`)
-  28. `impact_snapshots` (`snapshot_id, ticket_id, plan_id, impact_score_total, need_score, rescue_score, equity_score, reliability_score`)
-  29. `equity_audit_results` (`audit_id, ticket_id, plan_id, verdict, chosen_poverty_avg, metro_poverty_avg, created_at`)
+  28. `impact_snapshots` (`snapshot_id, ticket_id, plan_id, total_impact_score, need_score, food_rescued_score, equity_score, reliability_score`)
+  29. `equity_audit_results` (`audit_id, ticket_id, plan_id, verdict, reasons, audited_at, tenant_id`)
 
 ## Enums (YES/NO/UNRECORDED, plan/hold/allocation statuses, verdicts)
 - **Capability/Fact Tri-State:** `YES`, `NO`, `UNRECORDED`
@@ -73,7 +73,7 @@ Frontend contracts (later, outside this plan) --HTTP/JSON only--> Backend (Cloud
 - **CandidateStatus:** `ELIGIBLE`, `FILTERED`, `FLAGGED`, `TIED`
 - **HoldStatus:** `ACTIVE`, `CONFIRMED`, `EXPIRED`, `RELEASED`
 - **AllocationStatus:** `CONFIRMED`, `DECLINED`, `NO_SHOW`, `EXPIRED`, `COMPLETED`
-- **Verdicts:** Recall = `CLEAR | HALTED | NOT_CHECKED`; Equity = `PASS | WARN`; ShelfLifeSource = `FOODKEEPER | DONOR_FALLBACK | NOT_APPLICABLE`; ExecutionSource = `CODE_EXECUTION | PYTHON_FALLBACK`; DistanceSource = `GOOGLE_ROUTES | HAVERSINE_FALLBACK`
+- **Verdicts:** Recall = `CLEAR | HALTED | NOT_CHECKED`; Equity = `PASS | WARN`; ShelfLifeSource = `FOODKEEPER | DONOR_FALLBACK | NOT_APPLICABLE`; ExecutionSource = `CODE_EXECUTION | PYTHON_FALLBACK`; DistanceSource = `GOOGLE_ROUTES | HAVERSINE_FALLBACK`; TractStatus = `FOUND | UNKNOWN`
 
 ## Non-negotiable rules (the 10 rules in this file)
 1. **Honest unknowns:** Unrecorded is not no, not-checked is not clear, blank shelf-life is never a silent zero (`YES / NO / UNRECORDED`; failed recall = `NOT_CHECKED`).
@@ -88,11 +88,23 @@ Frontend contracts (later, outside this plan) --HTTP/JSON only--> Backend (Cloud
 10. **Honest labels:** Households reached are estimated (never summed as unique people); ZIP-centroid distances are approximate; donor deadline always beats FoodKeeper.
 
 ## Traps (planted, NULL shelf-life, Spinach-under-Lettuce, ZIP centroid, tract join)
-1. **9 Planted teaching cases (`profile_source = 'planted'`):** Near-miss decoy (`recipient_id=119` Piedmont Community Table — no cold storage), contradiction (`recipient_id=120` Harborview Neighbors Trust — column vs text), genuine ties (`recipient_id=124, 125`), and vocabulary-mismatch rows (`recipient_id=121, 122, 123, 126, 127`).
-2. **NULL shelf-life (`shelf_life_hours IS NULL`):** Postings 3 (diapers → `NOT_APPLICABLE`), 4 (milk → `DONOR_FALLBACK`), 7 (infant formula → `DONOR_FALLBACK`) must fall back to donor `hours_available`, never `0`.
-3. **“Spinach” under “Lettuce”:** In `a4i_food.shelf_life`, Spinach is in `product_subtitle` under `product_name = 'Lettuce'`, not a top-level `product_name`.
-4. **ZIP centroids:** Recipient `latitude`/`longitude` are ZIP centroids; Haversine distances are labelled `HAVERSINE_FALLBACK`.
-5. **Tract join & types:** `recipient_id` is `INT64`; `tract_demographics.geo_id` is 11-char `STRING` (preserve leading zeros); `service_days` is comma-separated `STRING`; `cold_storage` has 6 values (`domestic`, `walk-in`, `medical`, `commercial`, `none`, `vehicle`). Left-join nearest tract so no pantry is ever dropped (`tract_status = FOUND | UNKNOWN`).
+1. **9 Planted teaching cases (`profile_source = 'planted'`):**
+   - ID 119: Greenline Community Pantry (Decoy: asks for fresh greens, but `cold_storage = 'none'`).
+   - ID 120: Harborview Neighbors Trust (Contradiction: profile text claims walk-in freezer then says 'no freezer at present').
+   - ID 121 & ID 122: Cedar Street vs Maple Street Produce Alliances (Tie: identical 10 pallets, 600 households, dock, reefer truck).
+   - ID 123: Ridgeway Avenue Food Ministry (Contradiction: column dock=False vs text dock height, service days Mon/Wed/Fri vs text Tue/Thu).
+   - ID 124: Southline Neighbors Pantry (Column Mon/Wed/Fri vs text Tue/Thu; 2 walk-in coolers).
+   - ID 125: Third Ward Community Table (Column Mon/Wed/Fri vs text Tue/Thu; small domestic fridge, 1 pallet).
+   - ID 126: Brookfield Family Resource Center (Column Mon/Wed/Fri vs text Tue/Thu; walk-in, 3 pallets).
+   - ID 127: Lakeshore Mutual Aid Collective (Vocabulary mismatch: 'Chilled holding' for commercial cold).
+2. **NULL shelf-life (`shelf_life_hours IS NULL`):**
+   - Posting 9: Diapers / wipes -> `NOT_APPLICABLE` (non-food).
+   - Posting 2: Milk (use-by code date) -> `DONOR_FALLBACK`.
+   - Posting 8: Sealed infant formula (tracked only after opening) -> `DONOR_FALLBACK`.
+   - All fall back to donor `hours_available`, never `0`.
+3. **“Spinach” under “Lettuce”:** In `a4i_food.shelf_life`, Spinach is located under `product_name = 'Lettuce'` and `product_subtitle = 'leaf, spinach'` (product_id = 291, 72.0 refrigerated hours). Conservative range end enforced.
+4. **ZIP centroids:** Recipient `latitude`/`longitude` are ZIP centroids (0 invalid, 0 out-of-bounds in Atlanta starter). Distance is labelled `HAVERSINE_FALLBACK`.
+5. **Tract join & types:** `recipient_id` is `INT64`; `tract_demographics.geo_id` is 11-char `STRING` (with leading zeros, e.g. `'13121001001'`); `service_days` is comma-separated `STRING`. Left-join nearest tract via `ST_DISTANCE` (all 127 recipients between 0.22 km and 6.24 km from nearest tract centroid; 0% missing rate in starter; fallback to `weekly_households`, status `FOUND | UNKNOWN`).
 
 ## Decisions log (date — decision — why, newest last, keep last 30)
 - `2026-10-27` — **C1 Managed BigQuery MCP Locked:** Use built-in Google-managed BigQuery MCP (`https://bigquery.googleapis.com/mcp`) via backend for guarded read-only one-off questions (`execute_sql_readonly`), recording SQL + `job_id`. No MCP Toolbox container.
@@ -100,8 +112,9 @@ Frontend contracts (later, outside this plan) --HTTP/JSON only--> Backend (Cloud
 - `2026-10-27` — **C3 Canonical Working Copy Locked:** Antigravity session clone `/Users/reyanadil/RescueGuard/ai_for_impact_atl_2` is canonical; pushes go to `origin` (`mattchainsaw/ai_for_impact_atl_2`).
 - `2026-10-27` — **M1–M5 Review Fixes Locked:** Code Execution primary (`CODE_EXECUTION`) with `PYTHON_FALLBACK`; canonical local/deploy commands; "by clicks" = direct HTTP API calls; frontend diagram relabelled; `ORG_DOCK` + coordinator assertion + residential regex validation on live postings.
 - `2026-10-27` — **Hard Gate 1 (Units) & Hard Gate 2 (Resolved Clock) Locked:** `CRATES_PER_PALLET = 20` in `backend/app/config.py`; single resolved clock (`resolved_deadline`, `resolved_shelf_life_hours`, `shelf_life_source`, `resolved_at`) and margin formula locked in `CONTRACTS.md` (contracts frozen v1, 29/52).
+- `2026-10-27` — **Phase 1 Data Layer Built & Proven:** `rescueguard_app` created in US region; 127 recipient embeddings generated via `AI.EMBED` gemini-embedding-2 (3,072d); `v_all_recipients`, `v_recipient_tract`, and `v_rescue_deserts` deployed; search read path proven (`VECTOR_SEARCH` returns verified recipients and drops pending ones); 9 Atlanta planted teaching cases and traps documented. 23/23 tests pass.
 
 ## Current phase / Last test result / Next phase
-- **Current phase:** Phase 0 — Setup and contract freeze (COMPLETE — awaiting user approval for Phase 1)
-- **Last test result:** `pytest backend/tests/test_contracts.py backend/tests/test_no_secrets.py` — ALL PASSED (`GET /api/health` 200 OK; 29 tables & 52 endpoints verified; M5 home-address rejection verified; live BigQuery MCP `job_id` verified; 0 leaked secrets/project IDs).
-- **Next phase:** Phase 1 — Data layer: verify, embed, join (do NOT start until user approves).
+- **Current phase:** Phase 1 — Data layer: verify, embed, join (COMPLETE — awaiting user approval for Phase 2)
+- **Last test result:** `pytest backend/tests/` — ALL 23 PASSED (10 contract tests, 11 data layer tests, 2 no-secrets tests).
+- **Next phase:** Phase 2 — Matcher, constraint, last-mile basics, recall (do NOT start until user approves).
