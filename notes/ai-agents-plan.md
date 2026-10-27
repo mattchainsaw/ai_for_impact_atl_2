@@ -1,6 +1,6 @@
 # Multi-Agent Architecture Plan: Atlanta Food Rescue & Surplus Network
 
-**Project:** `qwiklabs-gcp-04-e030b511c03a`  
+**Project:** `$GOOGLE_CLOUD_PROJECT` (`<event-project-from-config>`)  
 **Dataset:** `a4i_food`  
 **Framework:** Google Agent Development Kit (`google-adk`)  
 

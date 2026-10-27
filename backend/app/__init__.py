@@ -1,0 +1,2 @@
+"""RescueGuard FastAPI application package."""
+

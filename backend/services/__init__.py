@@ -1,0 +1,2 @@
+"""RescueGuard domain services package."""
+
