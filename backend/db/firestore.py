@@ -88,3 +88,91 @@ def cache_distance_pair(
         "cached_at": datetime.now(timezone.utc).isoformat(),
     })
 
+
+# ============================================================================
+# Postings, Tickets, and Plans CRUD Helpers (Phase 3)
+# ============================================================================
+
+
+def save_posting(posting: Dict[str, Any]) -> None:
+    """Save a live donor posting to Firestore postings collection."""
+    db = get_firestore_client()
+    doc_id = str(posting["posting_id"])
+    db.collection("postings").document(doc_id).set(posting)
+
+
+def get_posting(posting_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a live donor posting from Firestore postings collection."""
+    db = get_firestore_client()
+    doc = db.collection("postings").document(str(posting_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def list_postings() -> List[Dict[str, Any]]:
+    """List all live donor postings from Firestore."""
+    db = get_firestore_client()
+    docs = db.collection("postings").stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_ticket(ticket: Dict[str, Any]) -> None:
+    """Save a ticket to Firestore tickets collection."""
+    db = get_firestore_client()
+    doc_id = str(ticket["ticket_id"])
+    db.collection("tickets").document(doc_id).set(ticket)
+
+
+def get_ticket(ticket_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a ticket from Firestore tickets collection."""
+    db = get_firestore_client()
+    doc = db.collection("tickets").document(str(ticket_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_ticket(ticket_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing ticket."""
+    db = get_firestore_client()
+    db.collection("tickets").document(str(ticket_id)).update(updates)
+
+
+def list_tickets() -> List[Dict[str, Any]]:
+    """List all tickets from Firestore."""
+    db = get_firestore_client()
+    docs = db.collection("tickets").stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_plan(plan: Dict[str, Any]) -> None:
+    """Save a plan to Firestore plans collection."""
+    db = get_firestore_client()
+    doc_id = str(plan["plan_id"])
+    db.collection("plans").document(doc_id).set(plan)
+
+
+def get_plan(plan_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a plan from Firestore plans collection."""
+    db = get_firestore_client()
+    doc = db.collection("plans").document(str(plan_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_plan(plan_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing plan."""
+    db = get_firestore_client()
+    db.collection("plans").document(str(plan_id)).update(updates)
+
+
+def list_plans(ticket_id: str) -> List[Dict[str, Any]]:
+    """List all plans for a ticket ordered by plan_version."""
+    db = get_firestore_client()
+    docs = db.collection("plans").where(filter=FieldFilter("ticket_id", "==", ticket_id)).stream()
+    plans = [doc.to_dict() for doc in docs]
+    return sorted(plans, key=lambda p: int(p.get("plan_version", 1)))
+
+
