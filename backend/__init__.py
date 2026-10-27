@@ -1,0 +1,2 @@
+"""RescueGuard backend package."""
+

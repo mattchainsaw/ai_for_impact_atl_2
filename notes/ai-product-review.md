@@ -1,6 +1,6 @@
 # Product & User Experience (UX) Strategy: 3-Persona Surplus Broker
 
-**Project:** `qwiklabs-gcp-04-e030b511c03a` (`a4i_food` — Atlanta Metro)  
+**Project:** `$GOOGLE_CLOUD_PROJECT` (`a4i_food` — Atlanta Metro)  
 **North Star Goal:** *Do not let food (or critical essentials) go to waste—and ensure rescue flows to high-need communities, not just the easiest loading docks.*
 
 ---

@@ -1,6 +1,6 @@
 # Challenge 2: Resilient Food Equity & Surplus Broker (Atlanta) — Architecture & Strategy Review
 
-**Project:** `qwiklabs-gcp-04-e030b511c03a`  
+**Project:** `$GOOGLE_CLOUD_PROJECT` (`<event-project-from-config>`)  
 **BigQuery Dataset:** `a4i_food` (Location: `US`)  
 **Metro:** Atlanta, GA  
 **Core Mission:** *Do not let food go to waste.* Match surplus food and critical essentials across **3 Personas** (Donor, Recipient, Manager) and **3 Tracks** (Retail & Grocer Rescue, Farm Surplus, Critical Non-Food Items) using a **Multi-Heuristic Tradeoff Engine** and a **5th Historical Match Ledger Table**.

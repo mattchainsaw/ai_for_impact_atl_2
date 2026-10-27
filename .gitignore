@@ -5,6 +5,7 @@ __pycache__/
 venv/
 env/
 .ipynb_checkpoints/
+.pytest_cache/
 
 # Credentials - never commit these
 *.json.key
