@@ -311,6 +311,152 @@ class TicketParameters(BaseModel):
     split_allowed: bool = True
 
 
+# ============================================================================
+# Phase 5: Match Brief and Role Contracts (Coordinator, Donor, Recipient)
+# ============================================================================
+
+
+class BriefRecipientSection(BaseContractModel):
+    """Section 1, 2, 3, 5, 8: Recipient details in Match Brief."""
+
+    recipient_id: int
+    name: str
+    org_address: str
+    zip_code: str
+    zip_area_label: str = "ZIP-area approximate"
+    why_them: str
+    allocated_quantity: float
+    allocated_unit: str
+    max_capacity_pallets: float
+    capacity_vs_allocated: str
+    poverty_rate: Optional[float] = None
+    no_vehicle_rate: Optional[float] = None
+    demographics_label: str = "Census tract area-level (tract aggregate)"
+    distance_km: Optional[float] = None
+    distance_label: str = "ZIP-area approximate"
+    maps_directions_url: Optional[str] = None
+    maps_attribution_text: str = "Google Routes API (ZIP-area approximate)"
+
+
+class GuardrailCandidateItem(BaseContractModel):
+    """Candidate representation in Guardrails callout, built strictly from match_candidates."""
+
+    recipient_id: int
+    name: str
+    semantic_rank_before: int
+    post_filter_rank_after: Optional[int] = None
+    drop_reason: Optional[str] = None
+    contradiction_flag: bool = False
+    status: str
+    tie_break_values: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GuardrailCallout(BaseContractModel):
+    """Required Guardrails callout in Match Brief, built strictly from stored candidate rows."""
+
+    title: str = "Safety & Capacity Guardrails: Why Top Semantic Matches Were Filtered"
+    has_candidate_data: bool = True
+    message_if_missing: Optional[str] = None
+    filtered_candidates: List[GuardrailCandidateItem] = Field(default_factory=list)
+    eligible_candidates: List[GuardrailCandidateItem] = Field(default_factory=list)
+    callout_text: str
+
+
+class MatchBriefResponse(BaseContractModel):
+    """Match Brief response contract stored in `match_briefs` per approved plan version."""
+
+    ticket_id: str
+    plan_id: str
+    plan_version: int
+    brief_text: str
+    donor_pickup_org_address: str
+    donor_address_validated: bool
+    clock_and_margin: Dict[str, Any]
+    which_org: List[BriefRecipientSection] = Field(default_factory=list)
+    why_them: List[Dict[str, Any]] = Field(default_factory=list)
+    what_they_can_take: List[Dict[str, Any]] = Field(default_factory=list)
+    who_it_helps: List[Dict[str, Any]] = Field(default_factory=list)
+    outreach_message_draft: str
+    next_two_options: List[Dict[str, Any]] = Field(default_factory=list)
+    guardrail_callout: GuardrailCallout
+    maps_attribution_text: str = "Google Routes API (ZIP-area approximate)"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DonorMatchedPantry(BaseContractModel):
+    """Pantry allocation details visible to donor."""
+
+    recipient_id: int
+    name: str
+    org_address: str
+    allocated_quantity: float
+    allocated_unit: str
+    hold_status: Optional[str] = None
+    allocation_status: Optional[str] = None
+
+
+class DonorTicketResponse(BaseContractModel):
+    """Role contract: Donor ticket view containing only donor-visible fields."""
+
+    role: Role = Role.DONOR
+    ticket_id: str
+    posting_id: str
+    status: TicketStatus
+    posting: Dict[str, Any]
+    matched_pantries: List[DonorMatchedPantry] = Field(default_factory=list)
+    hold_status: str
+    final_pickup_plan: Optional[Dict[str, Any]] = None
+    match_brief: Optional[MatchBriefResponse] = None
+
+
+class DonorPlanResponse(BaseContractModel):
+    """Role contract: Donor plan view."""
+
+    role: Role = Role.DONOR
+    plan_id: str
+    ticket_id: str
+    plan_version: int
+    status: PlanStatus
+    matched_pantries: List[DonorMatchedPantry] = Field(default_factory=list)
+    final_pickup_plan: Optional[Dict[str, Any]] = None
+    match_brief: Optional[MatchBriefResponse] = None
+
+
+class RecipientOffer(BaseContractModel):
+    """Single recipient offer details visible only to recipient."""
+
+    recipient_id: int
+    name: str
+    allocated_quantity: float
+    allocated_unit: str
+    hold_id: Optional[str] = None
+    hold_status: Optional[str] = None
+    confirm_decline_state: str
+    donor_pickup_org_address: str
+    own_delivery_org_address: str
+    donor_deadline: Optional[datetime] = None
+
+
+class RecipientTicketResponse(BaseContractModel):
+    """Role contract: Recipient ticket view containing only recipient's offer."""
+
+    role: Role = Role.RECIPIENT
+    ticket_id: str
+    current_plan_id: Optional[str] = None
+    offer: RecipientOffer
+
+
+class RecipientPlanResponse(BaseContractModel):
+    """Role contract: Recipient plan view containing only recipient's offer."""
+
+    role: Role = Role.RECIPIENT
+    plan_id: str
+    ticket_id: str
+    plan_version: int
+    status: PlanStatus
+    offer: RecipientOffer
+
+
 class TicketResponse(BaseContractModel):
     """11, 13, 17. Ticket state response contract (also canonical crash-resume response)."""
 
@@ -331,6 +477,7 @@ class TicketResponse(BaseContractModel):
     tasks_already_approved: List[str] = Field(default_factory=list)
     step_started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: TicketStatus = TicketStatus.ACTIVE
+    match_brief: Optional[MatchBriefResponse] = None
 
 
 class TicketListResponse(BaseContractModel):
@@ -397,6 +544,7 @@ class PlanResponse(BaseContractModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     approved_by_role: Optional[Role] = None
     approved_at: Optional[datetime] = None
+    match_brief: Optional[MatchBriefResponse] = None
 
 
 class PlanListResponse(BaseContractModel):

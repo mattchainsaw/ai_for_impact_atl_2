@@ -10,6 +10,16 @@ from schemas.api import (
     TEAM_BQ_TABLES_AND_VIEWS,
     HealthQuery,
     HealthResponse,
+    BriefRecipientSection,
+    GuardrailCandidateItem,
+    GuardrailCallout,
+    MatchBriefResponse,
+    DonorMatchedPantry,
+    DonorTicketResponse,
+    DonorPlanResponse,
+    RecipientOffer,
+    RecipientTicketResponse,
+    RecipientPlanResponse,
 )
 from schemas.common import (
     ActionCard,
@@ -66,6 +76,17 @@ __all__ = [
     # Health
     "HealthQuery",
     "HealthResponse",
+    # Phase 5 Brief & Roles
+    "BriefRecipientSection",
+    "GuardrailCandidateItem",
+    "GuardrailCallout",
+    "MatchBriefResponse",
+    "DonorMatchedPantry",
+    "DonorTicketResponse",
+    "DonorPlanResponse",
+    "RecipientOffer",
+    "RecipientTicketResponse",
+    "RecipientPlanResponse",
     # Domain models & functions
     "ActionCard",
     "CandidateEvidence",

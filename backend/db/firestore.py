@@ -176,3 +176,268 @@ def list_plans(ticket_id: str) -> List[Dict[str, Any]]:
     return sorted(plans, key=lambda p: int(p.get("plan_version", 1)))
 
 
+# ============================================================================
+# Holds, Allocations, Tasks, Approvals, Chat & Audit CRUD (Phase 4)
+# ============================================================================
+
+
+def save_hold(hold: Dict[str, Any]) -> None:
+    """Save a hold record to Firestore holds collection."""
+    db = get_firestore_client()
+    doc_id = str(hold["hold_id"])
+    db.collection("holds").document(doc_id).set(hold)
+
+
+def get_hold(hold_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a hold record from Firestore holds collection."""
+    db = get_firestore_client()
+    doc = db.collection("holds").document(str(hold_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_hold(hold_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing hold."""
+    db = get_firestore_client()
+    db.collection("holds").document(str(hold_id)).update(updates)
+
+
+def list_holds(
+    ticket_id: Optional[str] = None,
+    recipient_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """List holds filtered by ticket_id or recipient_id."""
+    db = get_firestore_client()
+    query = db.collection("holds")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    if recipient_id is not None:
+        query = query.where(filter=FieldFilter("recipient_id", "==", int(recipient_id)))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_allocation(allocation: Dict[str, Any]) -> None:
+    """Save an allocation record to Firestore allocations collection."""
+    db = get_firestore_client()
+    doc_id = str(allocation["allocation_id"])
+    db.collection("allocations").document(doc_id).set(allocation)
+
+
+def get_allocation(allocation_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve an allocation record from Firestore allocations collection."""
+    db = get_firestore_client()
+    doc = db.collection("allocations").document(str(allocation_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_allocation(allocation_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing allocation."""
+    db = get_firestore_client()
+    db.collection("allocations").document(str(allocation_id)).update(updates)
+
+
+def list_allocations(
+    ticket_id: Optional[str] = None,
+    recipient_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """List allocations filtered by ticket_id or recipient_id."""
+    db = get_firestore_client()
+    query = db.collection("allocations")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    if recipient_id is not None:
+        query = query.where(filter=FieldFilter("recipient_id", "==", int(recipient_id)))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_task(task: Dict[str, Any]) -> None:
+    """Save a task record to Firestore tasks collection."""
+    db = get_firestore_client()
+    doc_id = str(task["task_id"])
+    db.collection("tasks").document(doc_id).set(task)
+
+
+def get_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a task record from Firestore tasks collection."""
+    db = get_firestore_client()
+    doc = db.collection("tasks").document(str(task_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_task(task_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing task."""
+    db = get_firestore_client()
+    db.collection("tasks").document(str(task_id)).update(updates)
+
+
+def list_tasks(
+    ticket_id: Optional[str] = None,
+    owner_role: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """List tasks filtered by ticket_id or owner_role."""
+    db = get_firestore_client()
+    query = db.collection("tasks")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    if owner_role is not None:
+        query = query.where(filter=FieldFilter("owner_role", "==", owner_role))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_approval(approval: Dict[str, Any]) -> None:
+    """Save an approval record to Firestore approvals collection."""
+    db = get_firestore_client()
+    doc_id = str(approval["approval_id"])
+    db.collection("approvals").document(doc_id).set(approval)
+
+
+def get_approval(approval_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve an approval record by approval_id."""
+    db = get_firestore_client()
+    doc = db.collection("approvals").document(str(approval_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def get_approval_by_request_id(request_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve an approval record by request_id (for idempotency checks)."""
+    db = get_firestore_client()
+    docs = db.collection("approvals").where(filter=FieldFilter("request_id", "==", request_id)).limit(1).stream()
+    for doc in docs:
+        return doc.to_dict()
+    return None
+
+
+def list_approvals(target_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List approvals, optionally filtered by target_id / plan_id."""
+    db = get_firestore_client()
+    query = db.collection("approvals")
+    if target_id is not None:
+        query = query.where(filter=FieldFilter("target_id", "==", target_id))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_conversation(conv: Dict[str, Any]) -> None:
+    """Save or replace a conversation record in Firestore conversations collection."""
+    db = get_firestore_client()
+    doc_id = str(conv["session_id"])
+    db.collection("conversations").document(doc_id).set(conv)
+
+
+def get_conversation(session_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a conversation record by session_id."""
+    db = get_firestore_client()
+    doc = db.collection("conversations").document(str(session_id)).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
+
+
+def update_conversation(session_id: str, updates: Dict[str, Any]) -> None:
+    """Update fields on an existing conversation."""
+    db = get_firestore_client()
+    db.collection("conversations").document(str(session_id)).update(updates)
+
+
+def save_notification(notification: Dict[str, Any]) -> None:
+    """Save a notification record to Firestore notifications collection."""
+    db = get_firestore_client()
+    doc_id = str(notification.get("notification_id") or f"notif-{int(datetime.now(timezone.utc).timestamp()*1000)}")
+    notification["notification_id"] = doc_id
+    db.collection("notifications").document(doc_id).set(notification)
+
+
+def list_notifications(
+    recipient_role: Optional[str] = None,
+    recipient_org_id: Optional[str] = None,
+    ticket_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """List notifications filtered by recipient_role, recipient_org_id, or ticket_id."""
+    db = get_firestore_client()
+    query = db.collection("notifications")
+    if recipient_role is not None:
+        query = query.where(filter=FieldFilter("recipient_role", "==", recipient_role))
+    if recipient_org_id is not None:
+        query = query.where(filter=FieldFilter("recipient_org_id", "==", str(recipient_org_id)))
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+def save_audit_event(event: Dict[str, Any]) -> None:
+    """Save an audit log entry to Firestore audit_log collection."""
+    db = get_firestore_client()
+    doc_id = str(event.get("audit_id") or f"audit-{int(datetime.now(timezone.utc).timestamp()*1000)}")
+    event["audit_id"] = doc_id
+    db.collection("audit_log").document(doc_id).set(event)
+
+
+def list_audit_events(ticket_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List audit log entries, optionally filtered by ticket_id."""
+    db = get_firestore_client()
+    query = db.collection("audit_log")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+# ============================================================================
+# Phase 5: Match Briefs Collection (`match_briefs`)
+# ============================================================================
+
+
+def save_match_brief(brief: Dict[str, Any]) -> None:
+    """Save a match brief document to Firestore match_briefs collection."""
+    db = get_firestore_client()
+    plan_id = brief.get("plan_id")
+    ticket_id = brief.get("ticket_id")
+    doc_id = f"{ticket_id}_{plan_id}" if (ticket_id and plan_id) else (plan_id or f"brief-{uuid.uuid4().hex[:8]}")
+    brief["brief_id"] = doc_id
+    db.collection("match_briefs").document(doc_id).set(brief)
+
+
+def get_match_brief(plan_id: str) -> Optional[Dict[str, Any]]:
+    """Get single match brief for an approved plan version by plan_id."""
+    db = get_firestore_client()
+    docs = db.collection("match_briefs").where(filter=FieldFilter("plan_id", "==", plan_id)).limit(1).stream()
+    for doc in docs:
+        return doc.to_dict()
+    return None
+
+
+def get_match_brief_for_ticket(ticket_id: str) -> Optional[Dict[str, Any]]:
+    """Get latest match brief for a ticket."""
+    db = get_firestore_client()
+    docs = list(db.collection("match_briefs").where(filter=FieldFilter("ticket_id", "==", ticket_id)).stream())
+    if not docs:
+        return None
+    # Sort by created_at descending if multiple plan versions exist
+    briefs = [d.to_dict() for d in docs]
+    briefs.sort(key=lambda b: str(b.get("created_at", "")), reverse=True)
+    return briefs[0]
+
+
+def list_match_briefs(ticket_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List match briefs, optionally filtered by ticket_id."""
+    db = get_firestore_client()
+    query = db.collection("match_briefs")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+
+
