@@ -11,3 +11,4 @@ RescueGuard enforces strict separation between transactional holds and enduring 
 3. **Recipient Decline:** Allows a recipient to decline an allocation before confirmation. The decline marks the hold `RELEASED`, the allocation `DECLINED`, promotes the next eligible pantry from candidate store, creates a new plan version ($v_{current} + 1$), and keeps non-declined holds active.
 4. **Donor Cancellation:** Cancelling a ticket immediately transitions all active holds to `RELEASED` and dispatches recipient notifications.
 5. **No-Show:** If a recipient fails to collect scheduled food, the coordinator records `NO_SHOW` in the allocations collection, preventing unearned fairness credit.
+

@@ -24,3 +24,4 @@ In compliance with strict safety guardrails:
 ## Checkpoint & Crash Resilience
 - All ticket state, approved tasks (`tasks_already_approved`), active holds (`holds_already_started`), and current plan versions are persisted in Firestore.
 - Calling `GET /api/tickets/{ticket_id}` returns the complete resumed checkpoint state without duplicating holds or re-running expensive external queries.
+

@@ -16,3 +16,4 @@ RescueGuard Guide provides an intelligent conversational assistant interface pow
 - User chat messages and postings pass through automatic PII scrubbers (`scrub_pii`).
 - Regex patterns detect and redact US phone numbers, personal emails, and free-text residential street addresses (`[REDACTED_PHONE]`, `[REDACTED_EMAIL]`, `[REDACTED_ADDRESS]`).
 - Coordinator dock pickup addresses are verified via `ORG_DOCK` assertions and kept strictly distinguished from residential PII.
+

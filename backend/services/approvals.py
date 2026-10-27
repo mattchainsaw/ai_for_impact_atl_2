@@ -13,6 +13,7 @@ Enforces:
 """
 
 from datetime import datetime, timezone
+import logging
 from typing import Any, Dict, List, Optional
 import uuid
 from fastapi import HTTPException
@@ -28,8 +29,11 @@ from backend.db.firestore import (
     save_audit_event,
 )
 from backend.services.holds import create_holds_for_plan
+from backend.services.briefs import generate_match_brief
 from schemas.enums import PlanStatus, Role, ActionTargetType, TaskStatus
 from schemas.common import ActionCard
+
+logger = logging.getLogger("rescueguard.approvals")
 
 
 def approve_plan(
@@ -140,6 +144,12 @@ def approve_plan(
         "request_id": eff_request_id,
         "tenant_id": ticket.get("tenant_id", "atlanta-default"),
     })
+
+    # Phase 5: Generate and persist Match Brief for this approved plan version
+    try:
+        generate_match_brief(ticket_id=ticket_id, plan_id=plan_id, persist=True)
+    except Exception as e:
+        logger.warning(f"Failed to generate match brief for plan {plan_id}: {e}")
 
     return {
         "approval_id": approval_id,

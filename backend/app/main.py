@@ -12,7 +12,7 @@ Implements Phase 0 and Phase 2 endpoints:
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import uuid
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -38,9 +38,14 @@ from schemas.api import (
     CreateTicketRequest,
     TicketResponse,
     TicketListResponse,
+    DonorTicketResponse,
+    RecipientTicketResponse,
     RunTicketMatchRequest,
     PlanResponse,
     PlanListResponse,
+    DonorPlanResponse,
+    RecipientPlanResponse,
+    MatchBriefResponse,
     TicketParametersResponse,
     UpdateTicketParametersRequest,
     MeResponse,
@@ -94,6 +99,8 @@ from backend.services.auth import (
     check_tenant_access,
     check_donor_access,
     check_recipient_access,
+    filter_ticket_for_role,
+    filter_plan_for_role,
 )
 from backend.services.holds import (
     get_holds_for_ticket,
@@ -129,8 +136,12 @@ from backend.services.guide import (
     get_conversation_history,
 )
 from backend.db.firestore import (
+    get_match_brief,
+    get_match_brief_for_ticket,
     get_plan,
     get_posting,
+    get_ticket,
+    list_holds,
     list_plans,
     list_postings,
     save_posting,
@@ -489,17 +500,37 @@ def list_tickets_endpoint() -> TicketListResponse:
     )
 
 
-@app.get("/api/tickets/{ticket_id}", response_model=TicketResponse)
+@app.get(
+    "/api/tickets/{ticket_id}",
+    response_model=Union[DonorTicketResponse, RecipientTicketResponse, TicketResponse],
+)
 def get_ticket_endpoint(
     ticket_id: str,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
     tenant_id: str = Depends(get_current_tenant),
-) -> TicketResponse:
-    """Get single ticket by ID."""
-    t = get_ticket_service(ticket_id)
-    if not t:
+) -> Any:
+    """Get single ticket by ID, filtered according to persona role contract."""
+    ticket_doc = get_ticket(ticket_id)
+    if not ticket_doc:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
-    check_tenant_access(t.tenant_id, tenant_id)
-    return t
+    check_tenant_access(ticket_doc.get("tenant_id"), tenant_id)
+
+    posting_doc = get_posting(ticket_doc.get("posting_id", "")) if ticket_doc.get("posting_id") else None
+    plan_doc = get_plan(ticket_doc.get("current_plan_id", "")) if ticket_doc.get("current_plan_id") else None
+    brief_doc = get_match_brief_for_ticket(ticket_id)
+    holds_docs = list_holds(ticket_id=ticket_id)
+
+    filtered = filter_ticket_for_role(
+        ticket=ticket_doc,
+        role=role,
+        org_id=org_id,
+        posting=posting_doc,
+        plan=plan_doc,
+        brief=brief_doc,
+        holds=holds_docs,
+    )
+    return filtered
 
 
 @app.post("/api/tickets/{ticket_id}/match", response_model=PlanResponse)
@@ -519,13 +550,37 @@ def list_ticket_plans_endpoint(ticket_id: str) -> PlanListResponse:
     )
 
 
-@app.get("/api/plans/{plan_id}", response_model=PlanResponse)
-def get_plan_endpoint(plan_id: str) -> PlanResponse:
-    """Get single plan version by ID."""
-    plan = get_plan(plan_id)
-    if not plan:
+@app.get(
+    "/api/plans/{plan_id}",
+    response_model=Union[DonorPlanResponse, RecipientPlanResponse, PlanResponse],
+)
+def get_plan_endpoint(
+    plan_id: str,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> Any:
+    """Get single plan version by ID, filtered according to persona role contract."""
+    plan_doc = get_plan(plan_id)
+    if not plan_doc:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
-    return PlanResponse(**plan)
+    check_tenant_access(plan_doc.get("tenant_id"), tenant_id)
+
+    ticket_doc = get_ticket(plan_doc.get("ticket_id", "")) if plan_doc.get("ticket_id") else None
+    posting_doc = get_posting(ticket_doc.get("posting_id", "")) if ticket_doc and ticket_doc.get("posting_id") else None
+    brief_doc = get_match_brief(plan_id) or (get_match_brief_for_ticket(plan_doc.get("ticket_id", "")) if plan_doc.get("ticket_id") else None)
+    holds_docs = list_holds(ticket_id=plan_doc.get("ticket_id", "")) if plan_doc.get("ticket_id") else []
+
+    filtered = filter_plan_for_role(
+        plan=plan_doc,
+        role=role,
+        org_id=org_id,
+        ticket=ticket_doc,
+        posting=posting_doc,
+        brief=brief_doc,
+        holds=holds_docs,
+    )
+    return filtered
 
 
 @app.get("/api/tickets/{ticket_id}/parameters", response_model=TicketParametersResponse)

@@ -393,4 +393,51 @@ def list_audit_events(ticket_id: Optional[str] = None) -> List[Dict[str, Any]]:
     return [doc.to_dict() for doc in docs]
 
 
+# ============================================================================
+# Phase 5: Match Briefs Collection (`match_briefs`)
+# ============================================================================
+
+
+def save_match_brief(brief: Dict[str, Any]) -> None:
+    """Save a match brief document to Firestore match_briefs collection."""
+    db = get_firestore_client()
+    plan_id = brief.get("plan_id")
+    ticket_id = brief.get("ticket_id")
+    doc_id = f"{ticket_id}_{plan_id}" if (ticket_id and plan_id) else (plan_id or f"brief-{uuid.uuid4().hex[:8]}")
+    brief["brief_id"] = doc_id
+    db.collection("match_briefs").document(doc_id).set(brief)
+
+
+def get_match_brief(plan_id: str) -> Optional[Dict[str, Any]]:
+    """Get single match brief for an approved plan version by plan_id."""
+    db = get_firestore_client()
+    docs = db.collection("match_briefs").where(filter=FieldFilter("plan_id", "==", plan_id)).limit(1).stream()
+    for doc in docs:
+        return doc.to_dict()
+    return None
+
+
+def get_match_brief_for_ticket(ticket_id: str) -> Optional[Dict[str, Any]]:
+    """Get latest match brief for a ticket."""
+    db = get_firestore_client()
+    docs = list(db.collection("match_briefs").where(filter=FieldFilter("ticket_id", "==", ticket_id)).stream())
+    if not docs:
+        return None
+    # Sort by created_at descending if multiple plan versions exist
+    briefs = [d.to_dict() for d in docs]
+    briefs.sort(key=lambda b: str(b.get("created_at", "")), reverse=True)
+    return briefs[0]
+
+
+def list_match_briefs(ticket_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List match briefs, optionally filtered by ticket_id."""
+    db = get_firestore_client()
+    query = db.collection("match_briefs")
+    if ticket_id is not None:
+        query = query.where(filter=FieldFilter("ticket_id", "==", ticket_id))
+    docs = query.stream()
+    return [doc.to_dict() for doc in docs]
+
+
+
 

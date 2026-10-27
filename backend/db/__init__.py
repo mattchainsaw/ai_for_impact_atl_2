@@ -42,6 +42,10 @@ from backend.db.firestore import (
     list_notifications,
     save_audit_event,
     list_audit_events,
+    save_match_brief,
+    get_match_brief,
+    get_match_brief_for_ticket,
+    list_match_briefs,
 )
 
 __all__ = [
@@ -86,4 +90,8 @@ __all__ = [
     "list_notifications",
     "save_audit_event",
     "list_audit_events",
+    "save_match_brief",
+    "get_match_brief",
+    "get_match_brief_for_ticket",
+    "list_match_briefs",
 ]
