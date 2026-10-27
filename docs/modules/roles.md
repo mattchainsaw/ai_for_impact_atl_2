@@ -13,3 +13,4 @@ Enforced across `GET /api/tickets/{ticket_id}` and `GET /api/plans/{plan_id}`:
 ### 3. Recipient View
 - Access restricted to own offer, allocated quantity/unit, hold confirmation state, own delivery address, and donor pickup org dock address.
 - Competing recipients and cross-recipient reads return `404 Not Found` (never 403).
+

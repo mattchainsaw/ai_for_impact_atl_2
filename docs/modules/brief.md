@@ -24,3 +24,4 @@ No 53rd endpoint was added.
 - Donor pickup address is displayed strictly when asserted by coordinator as `address_type: ORG_DOCK`.
 - Starter postings are explicitly labelled as having no donor address.
 - Unvalidated or residential addresses are strictly suppressed to eliminate PII leakage.
+
