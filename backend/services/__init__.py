@@ -53,6 +53,51 @@ from backend.services.tickets import (
     execute_ticket_match,
     NoViableMatchException,
 )
+from backend.services.auth import (
+    get_current_role,
+    get_current_tenant,
+    get_current_org_id,
+    check_tenant_access,
+    check_donor_access,
+    check_recipient_access,
+)
+from backend.services.holds import (
+    create_holds_for_plan,
+    get_holds_for_ticket,
+    get_hold,
+    confirm_hold,
+    release_hold,
+    release_all_holds_for_ticket,
+)
+from backend.services.allocations import (
+    complete_allocation,
+    no_show_allocation,
+    list_allocations,
+    get_allocation,
+)
+from backend.services.approvals import (
+    approve_plan,
+    reject_plan,
+    approve_action,
+)
+from backend.services.decline import (
+    decline_allocation_and_replan,
+)
+from backend.services.cancel import (
+    cancel_ticket,
+)
+from backend.services.tasks import (
+    create_task,
+    get_task,
+    list_tasks,
+    patch_task,
+)
+from backend.services.guide import (
+    handle_assistant_chat,
+    get_conversation_history,
+    execute_guide_mcp_query,
+    scrub_pii,
+)
 
 __all__ = [
     "lookup_foodkeeper",
@@ -86,4 +131,33 @@ __all__ = [
     "update_ticket_parameters",
     "execute_ticket_match",
     "NoViableMatchException",
+    "get_current_role",
+    "get_current_tenant",
+    "get_current_org_id",
+    "check_tenant_access",
+    "check_donor_access",
+    "check_recipient_access",
+    "create_holds_for_plan",
+    "get_holds_for_ticket",
+    "get_hold",
+    "confirm_hold",
+    "release_hold",
+    "release_all_holds_for_ticket",
+    "complete_allocation",
+    "no_show_allocation",
+    "list_allocations",
+    "get_allocation",
+    "approve_plan",
+    "reject_plan",
+    "approve_action",
+    "decline_allocation_and_replan",
+    "cancel_ticket",
+    "create_task",
+    "get_task",
+    "list_tasks",
+    "patch_task",
+    "handle_assistant_chat",
+    "get_conversation_history",
+    "execute_guide_mcp_query",
+    "scrub_pii",
 ]

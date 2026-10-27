@@ -14,7 +14,7 @@ Implements Phase 0 and Phase 2 endpoints:
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import uuid
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 
@@ -43,10 +43,34 @@ from schemas.api import (
     PlanListResponse,
     TicketParametersResponse,
     UpdateTicketParametersRequest,
+    MeResponse,
+    CancelTicketRequest,
+    ApprovePlanRequest,
+    PlanApprovalResponse,
+    RejectPlanRequest,
+    HoldResponse,
+    HoldListResponse,
+    ConfirmHoldRequest,
+    ReleaseHoldRequest,
+    DeclineAllocationRequest,
+    CompleteAllocationRequest,
+    NoShowAllocationRequest,
+    AllocationResponse,
+    AllocationListResponse,
+    CreateTaskRequest,
+    TaskResponse,
+    TaskListResponse,
+    PatchTaskRequest,
+    ApproveActionRequest,
+    ActionApprovalResponse,
+    AssistantChatRequest,
+    AssistantChatResponse,
+    ConversationResponse,
 )
 from schemas.common import NoViableMatchFallback
 from schemas.enums import (
     ColdStorageType,
+    Role,
     TractStatus,
     TriStateStatus,
     VerificationStatus,
@@ -62,6 +86,47 @@ from backend.services.tickets import (
     list_tickets_service,
     update_ticket_parameters,
     NoViableMatchException,
+)
+from backend.services.auth import (
+    get_current_role,
+    get_current_tenant,
+    get_current_org_id,
+    check_tenant_access,
+    check_donor_access,
+    check_recipient_access,
+)
+from backend.services.holds import (
+    get_holds_for_ticket,
+    get_hold,
+    confirm_hold,
+    release_hold,
+)
+from backend.services.allocations import (
+    get_allocation,
+    complete_allocation,
+    no_show_allocation,
+    list_allocations as list_allocations_service,
+)
+from backend.services.approvals import (
+    approve_plan,
+    reject_plan,
+    approve_action,
+)
+from backend.services.decline import (
+    decline_allocation_and_replan,
+)
+from backend.services.cancel import (
+    cancel_ticket,
+)
+from backend.services.tasks import (
+    create_task,
+    get_task,
+    list_tasks,
+    patch_task,
+)
+from backend.services.guide import (
+    handle_assistant_chat,
+    get_conversation_history,
 )
 from backend.db.firestore import (
     get_plan,
@@ -379,11 +444,18 @@ def create_posting_endpoint(req: CreatePostingRequest) -> PostingResponse:
 
 
 @app.get("/api/postings/{posting_id}", response_model=PostingResponse)
-def get_posting_endpoint(posting_id: str) -> PostingResponse:
+def get_posting_endpoint(
+    posting_id: str,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> PostingResponse:
     """Get single live donor posting by ID."""
     doc = get_posting(posting_id)
     if not doc:
         raise HTTPException(status_code=404, detail=f"Posting {posting_id} not found")
+    check_tenant_access(doc.get("tenant_id"), tenant_id)
+    check_donor_access(doc.get("donor_id", ""), role, org_id)
     return PostingResponse(**doc)
 
 
@@ -418,11 +490,15 @@ def list_tickets_endpoint() -> TicketListResponse:
 
 
 @app.get("/api/tickets/{ticket_id}", response_model=TicketResponse)
-def get_ticket_endpoint(ticket_id: str) -> TicketResponse:
+def get_ticket_endpoint(
+    ticket_id: str,
+    tenant_id: str = Depends(get_current_tenant),
+) -> TicketResponse:
     """Get single ticket by ID."""
     t = get_ticket_service(ticket_id)
     if not t:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+    check_tenant_access(t.tenant_id, tenant_id)
     return t
 
 
@@ -473,4 +549,289 @@ def update_ticket_parameters_endpoint(
         ticket_id=ticket_id,
         parameters=params,
     )
+
+
+# ============================================================================
+# Phase 4 Endpoints: Supervisor, Identity, Holds, Tasks, Guide Chat
+# ============================================================================
+
+
+@app.get("/api/me", response_model=MeResponse)
+def get_me_endpoint(
+    role: Role = Depends(get_current_role),
+    tenant_id: str = Depends(get_current_tenant),
+    org_id: Optional[str] = Depends(get_current_org_id),
+) -> MeResponse:
+    """Return persona and tenant derived from request headers."""
+    eff_org_id = org_id or ("atlanta-coordinator-desk" if role == Role.COORDINATOR else f"{role.value.lower()}-org")
+    return MeResponse(
+        role=role,
+        org_id=eff_org_id,
+        tenant_id=tenant_id,
+    )
+
+
+@app.post("/api/tickets/{ticket_id}/cancel", response_model=TicketResponse)
+def cancel_ticket_endpoint(
+    ticket_id: str,
+    req: Optional[CancelTicketRequest] = None,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> TicketResponse:
+    """Cancel ticket, internally release all active holds, and notify recipients."""
+    reason = req.reason if req else "Cancelled by user"
+    cancelled = cancel_ticket(ticket_id, reason=reason, role=role, current_org_id=org_id)
+    check_tenant_access(cancelled.get("tenant_id"), tenant_id)
+    return TicketResponse(**cancelled)
+
+
+@app.post("/api/plans/{plan_id}/approve", response_model=PlanApprovalResponse)
+def approve_plan_endpoint(
+    plan_id: str,
+    req: Optional[ApprovePlanRequest] = None,
+    role: Role = Depends(get_current_role),
+    tenant_id: str = Depends(get_current_tenant),
+) -> PlanApprovalResponse:
+    """Approve a plan version, starting 10-minute holds for all allocations."""
+    approver_role = req.approver_role if (req and req.approver_role) else role
+    notes = req.notes if req else None
+    request_id = req.request_id if (req and req.request_id and req.request_id != "req-default") else None
+    result = approve_plan(
+        plan_id=plan_id,
+        approver_role=approver_role,
+        notes=notes,
+        request_id=request_id,
+    )
+    return PlanApprovalResponse(**result)
+
+
+@app.post("/api/plans/{plan_id}/reject", response_model=PlanResponse)
+def reject_plan_endpoint(
+    plan_id: str,
+    req: RejectPlanRequest,
+    role: Role = Depends(get_current_role),
+) -> PlanResponse:
+    """Coordinator rejects a plan version, recording reason and triggering re-plan."""
+    new_plan = reject_plan(plan_id=plan_id, reason=req.reason)
+    return PlanResponse(**new_plan)
+
+
+@app.get("/api/tickets/{ticket_id}/holds", response_model=HoldListResponse)
+def list_ticket_holds_endpoint(
+    ticket_id: str,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> HoldListResponse:
+    """List holds for a ticket, evaluating 10-minute expiry."""
+    ticket = get_ticket_service(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+    check_tenant_access(ticket.tenant_id, tenant_id)
+    holds = get_holds_for_ticket(ticket_id)
+    if role == Role.RECIPIENT and org_id:
+        holds = [h for h in holds if str(h.get("recipient_id")) == str(org_id)]
+    return HoldListResponse(
+        ticket_id=ticket_id,
+        holds=[HoldResponse(**h) for h in holds],
+    )
+
+
+@app.get("/api/holds/{hold_id}", response_model=HoldResponse)
+def get_hold_endpoint(
+    hold_id: str,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> HoldResponse:
+    """Get single hold record by ID."""
+    hold = get_hold(hold_id)
+    check_tenant_access(hold.get("tenant_id"), tenant_id)
+    check_recipient_access(hold.get("recipient_id"), role, org_id)
+    return HoldResponse(**hold)
+
+
+@app.post("/api/holds/{hold_id}/confirm", response_model=HoldResponse)
+def confirm_hold_endpoint(
+    hold_id: str,
+    req: ConfirmHoldRequest,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> HoldResponse:
+    """Recipient accepts/confirms an active hold."""
+    check_recipient_access(req.recipient_id, role, org_id)
+    hold = confirm_hold(hold_id=hold_id, recipient_id=req.recipient_id)
+    check_tenant_access(hold.get("tenant_id"), tenant_id)
+    return HoldResponse(**hold)
+
+
+@app.post("/api/holds/{hold_id}/release", response_model=HoldResponse)
+def release_hold_endpoint(
+    hold_id: str,
+    req: ReleaseHoldRequest,
+) -> HoldResponse:
+    """Release an active hold, freeing capacity."""
+    hold = release_hold(hold_id=hold_id, reason=req.reason)
+    return HoldResponse(**hold)
+
+
+@app.post("/api/tickets/{ticket_id}/decline", response_model=PlanResponse)
+def decline_allocation_endpoint(
+    ticket_id: str,
+    req: DeclineAllocationRequest,
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+) -> PlanResponse:
+    """Process per-allocation decline, promote next viable pantry, and generate new plan version."""
+    check_recipient_access(req.recipient_id, role, org_id)
+    new_plan = decline_allocation_and_replan(
+        ticket_id=ticket_id,
+        recipient_id=req.recipient_id,
+        allocation_id=req.allocation_id,
+        reason=req.reason,
+        request_id=req.request_id,
+    )
+    return PlanResponse(**new_plan)
+
+
+@app.post("/api/allocations/{allocation_id}/complete", response_model=AllocationResponse)
+def complete_allocation_endpoint(
+    allocation_id: str,
+    req: Optional[CompleteAllocationRequest] = None,
+) -> AllocationResponse:
+    """Mark allocation completed when pickup finishes."""
+    notes = req.notes if req else None
+    alloc = complete_allocation(allocation_id=allocation_id, notes=notes)
+    return AllocationResponse(**alloc)
+
+
+@app.post("/api/allocations/{allocation_id}/no-show", response_model=AllocationResponse)
+def no_show_allocation_endpoint(
+    allocation_id: str,
+    req: NoShowAllocationRequest,
+) -> AllocationResponse:
+    """Record recipient no-show in fairness ledger."""
+    alloc = no_show_allocation(allocation_id=allocation_id, reason=req.reason)
+    return AllocationResponse(**alloc)
+
+
+@app.get("/api/allocations", response_model=AllocationListResponse)
+def list_allocations_endpoint(
+    ticket_id: Optional[str] = Query(None),
+    role: Role = Depends(get_current_role),
+    org_id: Optional[str] = Depends(get_current_org_id),
+    tenant_id: str = Depends(get_current_tenant),
+) -> AllocationListResponse:
+    """List allocations filtered by tenant and persona."""
+    allocs = list_allocations_service(ticket_id=ticket_id)
+    filtered = []
+    for a in allocs:
+        if a.get("tenant_id") and a.get("tenant_id") != tenant_id:
+            continue
+        if role == Role.RECIPIENT and org_id and str(a.get("recipient_id")) != str(org_id):
+            continue
+        filtered.append(AllocationResponse(**a))
+    return AllocationListResponse(
+        allocations=filtered,
+        total_count=len(filtered),
+    )
+
+
+@app.post("/api/tasks", response_model=TaskResponse)
+def create_task_endpoint(
+    req: CreateTaskRequest,
+    tenant_id: str = Depends(get_current_tenant),
+) -> TaskResponse:
+    """Create a coordinator or system gap task."""
+    task = create_task(
+        ticket_id=req.ticket_id,
+        task_type=req.task_type,
+        owner_role=req.owner_role,
+        description=req.description,
+        plan_id=req.plan_id,
+        tenant_id=req.tenant_id or tenant_id,
+    )
+    return TaskResponse(**task)
+
+
+@app.get("/api/tasks", response_model=TaskListResponse)
+def list_tasks_endpoint(
+    ticket_id: Optional[str] = Query(None),
+    owner_role: Optional[str] = Query(None),
+    tenant_id: str = Depends(get_current_tenant),
+) -> TaskListResponse:
+    """List tasks filtered by ticket, owner_role, and tenant."""
+    tasks = list_tasks(ticket_id=ticket_id, owner_role=owner_role)
+    filtered = [TaskResponse(**t) for t in tasks if t.get("tenant_id", tenant_id) == tenant_id]
+    return TaskListResponse(tasks=filtered, total_count=len(filtered))
+
+
+@app.get("/api/tasks/{task_id}", response_model=TaskResponse)
+def get_task_endpoint(
+    task_id: str,
+    tenant_id: str = Depends(get_current_tenant),
+) -> TaskResponse:
+    """Get single task by ID."""
+    task = get_task(task_id)
+    check_tenant_access(task.get("tenant_id"), tenant_id)
+    return TaskResponse(**task)
+
+
+@app.patch("/api/tasks/{task_id}", response_model=TaskResponse)
+def patch_task_endpoint(
+    task_id: str,
+    req: PatchTaskRequest,
+) -> TaskResponse:
+    """Update task status, delegating to approval service if APPROVED."""
+    req_id = req.request_id if (req.request_id and req.request_id != "req-default") else None
+    task = patch_task(
+        task_id=task_id,
+        status=req.status,
+        approver_role=req.approver_role,
+        request_id=req_id,
+    )
+    return TaskResponse(**task)
+
+
+@app.post("/api/actions/approve", response_model=ActionApprovalResponse)
+def approve_action_endpoint(
+    req: ApproveActionRequest,
+) -> ActionApprovalResponse:
+    """Canonical entry point for approving actions proposed by Guide chat or desk."""
+    req_id = req.request_id if (req.request_id and req.request_id != "req-default") else None
+    res = approve_action(
+        action=req.action,
+        approver_role=req.approver_role,
+        request_id=req_id,
+    )
+    return ActionApprovalResponse(**res)
+
+
+@app.post("/api/assistant/chat", response_model=AssistantChatResponse)
+def assistant_chat_endpoint(
+    req: AssistantChatRequest,
+) -> AssistantChatResponse:
+    """Interact with Guide agent (Vertex AI ADK)."""
+    hold_val = req.hold_status.value if req.hold_status and hasattr(req.hold_status, "value") else (str(req.hold_status) if req.hold_status else None)
+    res = handle_assistant_chat(
+        session_id=req.session_id,
+        message=req.message,
+        role=req.role,
+        ticket_id=req.ticket_id,
+        posting_id=req.posting_id,
+        plan_version=req.plan_version,
+        step=req.step,
+        hold_status=hold_val,
+    )
+    return AssistantChatResponse(**res)
+
+
+@app.get("/api/conversations/{session_id}", response_model=ConversationResponse)
+def get_conversation_endpoint(session_id: str) -> ConversationResponse:
+    """Retrieve full conversation history for session."""
+    conv = get_conversation_history(session_id)
+    return ConversationResponse(**conv)
+
 

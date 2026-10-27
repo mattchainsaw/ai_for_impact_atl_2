@@ -22,20 +22,28 @@ from backend.db.firestore import save_plan
 logger = logging.getLogger(__name__)
 
 
-def compute_plan_hash(allocations: List[PlanAllocationItem]) -> str:
-    """Compute deterministic SHA-256 hash of allocations list."""
-    serialized = json.dumps(
-        [
-            {
-                "recipient_id": a.recipient_id,
-                "quantity": round(a.quantity, 2),
-                "unit": a.quantity_unit.value if hasattr(a.quantity_unit, "value") else str(a.quantity_unit),
-                "margin": round(a.clock_margin_hours, 2),
-            }
-            for a in allocations
-        ],
-        sort_keys=True,
-    )
+def compute_plan_hash(allocations: Any) -> str:
+    """Compute deterministic SHA-256 hash of allocations list (supports objects or dicts)."""
+    items = []
+    for a in allocations:
+        if isinstance(a, dict):
+            rec_id = a.get("recipient_id")
+            qty = round(float(a.get("quantity", 0)), 2)
+            unit_val = a.get("quantity_unit", "PALLETS")
+            unit = unit_val.value if hasattr(unit_val, "value") else str(unit_val)
+            margin = round(float(a.get("clock_margin_hours", 0)), 2)
+        else:
+            rec_id = a.recipient_id
+            qty = round(float(a.quantity), 2)
+            unit = a.quantity_unit.value if hasattr(a.quantity_unit, "value") else str(a.quantity_unit)
+            margin = round(float(a.clock_margin_hours), 2)
+        items.append({
+            "recipient_id": rec_id,
+            "quantity": qty,
+            "unit": unit,
+            "margin": margin,
+        })
+    serialized = json.dumps(items, sort_keys=True)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
 
 
