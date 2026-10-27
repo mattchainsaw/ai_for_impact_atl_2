@@ -114,5 +114,6 @@ def execute_readonly_mcp_sql(
         "rows": parsed_rows,
         "total_bytes_processed": structured.get("totalBytesProcessed", "0"),
         "called_at": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

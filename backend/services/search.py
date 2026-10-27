@@ -9,7 +9,7 @@ Per Part 2 lines 683-699:
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from google.cloud import bigquery
 
 from backend.app.config import get_settings
@@ -48,12 +48,12 @@ class SearchCandidate:
     dietary_flags: List[str]
 
 
-def search_recipients(
+def search_recipients_with_job(
     client: bigquery.Client,
     query_text: str,
     top_k: int = 10,
-) -> List[SearchCandidate]:
-    """Execute locked search read path through v_all_recipients."""
+) -> Tuple[List[SearchCandidate], str]:
+    """Execute locked search read path through v_all_recipients and return (candidates, bq_job_id)."""
     settings = get_settings()
     project = settings.google_cloud_project
     
@@ -67,7 +67,8 @@ def search_recipients(
         ]
     )
 
-    rows = list(client.query(sql, job_config=job_config).result())
+    query_job = client.query(sql, job_config=job_config)
+    rows = list(query_job.result())
     candidates = []
     for r in rows:
         candidates.append(
@@ -102,4 +103,15 @@ def search_recipients(
                 dietary_flags=list(r.dietary_flags) if r.dietary_flags else ["UNRECORDED"],
             )
         )
+    return candidates, query_job.job_id or "job-sync"
+
+
+def search_recipients(
+    client: bigquery.Client,
+    query_text: str,
+    top_k: int = 10,
+) -> List[SearchCandidate]:
+    """Execute locked search read path through v_all_recipients."""
+    candidates, _ = search_recipients_with_job(client, query_text, top_k=top_k)
     return candidates
+
