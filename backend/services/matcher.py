@@ -110,7 +110,9 @@ def match_recipients(
 
     for c in raw_candidates:
         demographics = tract_data.get(c.recipient_id, {})
+        has_tract = bool(demographics.get("tract_geo_id"))
         poverty_rate = demographics.get("poverty_rate", 0.20)
+        no_vehicle_rate = demographics.get("no_vehicle_rate", 0.15)
         weekly_households = c.weekly_households or 100
 
         # Last-mile distance, buffer, and margin
@@ -153,17 +155,25 @@ def match_recipients(
             pickup_weekday=pickup_weekday,
         )
 
-        # Need score based on census tract poverty rate
-        need_score = round(float(poverty_rate) * 100.0, 1)
+        # Need score per Part 2 Task 3: 0.6*poverty + 0.4*no_vehicle (UNKNOWN -> fallback to weekly households, flagged)
+        if has_tract:
+            need_score = round((0.6 * poverty_rate + 0.4 * no_vehicle_rate) * 100.0, 1)
+            tract_flag = "KNOWN"
+        else:
+            need_score = round(min((weekly_households / 500.0) * 100.0, 100.0), 1)
+            tract_flag = "UNKNOWN_FALLBACK"
 
         tie_break_values = {
             "poverty_rate": round(poverty_rate, 4),
+            "no_vehicle_rate": round(no_vehicle_rate, 4),
             "weekly_households": weekly_households,
             "distance_km": dist_km,
             "margin_hours": margin,
             "max_pallets": c.max_pallets,
             "transport_mode": trans_mode,
             "loading_mode": load_mode,
+            "tract_flag": tract_flag,
+            "recent_donation_history": "neutral",  # Phase 3 neutral/empty per Part 2 Task 3
         }
 
         record = MatchCandidateRecord(
@@ -190,11 +200,12 @@ def match_recipients(
             eligible_records.append(record)
 
     # 4. Rank eligible candidates post-filter
-    # Order by: highest need score, closest distance, best semantic distance
+    # Order by: highest need score, closest distance, highest poverty rate, best semantic distance
     eligible_records.sort(
         key=lambda r: (
             -r.need_score,
             r.donor_to_recipient_distance_km,
+            -float(r.tie_break_values.get("poverty_rate", 0.0)),
             r.semantic_distance,
         )
     )

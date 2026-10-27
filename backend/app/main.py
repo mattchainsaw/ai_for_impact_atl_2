@@ -11,8 +11,11 @@ Implements Phase 0 and Phase 2 endpoints:
 - GET /api/tracts/{geo_id}
 """
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException, Query
+import uuid
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 
 from backend.app.config import get_settings
@@ -29,7 +32,19 @@ from schemas.api import (
     ShelfLifeLookupResponse,
     ShelfLifeItem,
     TractLookupResponse,
+    CreatePostingRequest,
+    PostingResponse,
+    PostingListResponse,
+    CreateTicketRequest,
+    TicketResponse,
+    TicketListResponse,
+    RunTicketMatchRequest,
+    PlanResponse,
+    PlanListResponse,
+    TicketParametersResponse,
+    UpdateTicketParametersRequest,
 )
+from schemas.common import NoViableMatchFallback
 from schemas.enums import (
     ColdStorageType,
     TractStatus,
@@ -39,6 +54,22 @@ from schemas.enums import (
 from backend.services.matcher import match_recipients
 from backend.services.recall import check_recall, list_ticket_recall_checks
 from backend.services.shelf_life import lookup_foodkeeper
+from backend.services.tickets import (
+    create_ticket,
+    execute_ticket_match,
+    get_ticket_parameters,
+    get_ticket_service,
+    list_tickets_service,
+    update_ticket_parameters,
+    NoViableMatchException,
+)
+from backend.db.firestore import (
+    get_plan,
+    get_posting,
+    list_plans,
+    list_postings,
+    save_posting,
+)
 
 app = FastAPI(
     title="RescueGuard Backend API",
@@ -296,3 +327,150 @@ def get_tract_endpoint(geo_id: str) -> TractLookupResponse:
         no_vehicle_rate=float(r.no_vehicle_rate),
         assistance_rate=float(r.assistance_rate),
     )
+
+
+# ============================================================================
+# Phase 3 Exception Handlers & Endpoints
+# ============================================================================
+
+
+@app.exception_handler(NoViableMatchException)
+async def no_viable_match_exception_handler(request: Request, exc: NoViableMatchException) -> JSONResponse:
+    """Format structured HTTP 422 NoViableMatchFallback response."""
+    return JSONResponse(
+        status_code=422,
+        content=exc.fallback.model_dump(mode="json"),
+    )
+
+
+@app.post("/api/postings", response_model=PostingResponse)
+def create_posting_endpoint(req: CreatePostingRequest) -> PostingResponse:
+    """Create a live donor posting with address validation (Review Fix M5)."""
+    posting_id = f"post-{uuid.uuid4().hex[:8]}"
+    posting = PostingResponse(
+        request_id=req.request_id,
+        tenant_id=req.tenant_id,
+        posting_id=posting_id,
+        donor_id=req.donor_id,
+        donor_org_name=req.donor_org_name,
+        pickup_address=req.pickup_address,
+        address_type=req.address_type,
+        coordinator_asserted_org_dock=req.coordinator_asserted_org_dock,
+        asserted_by_role=req.asserted_by_role,
+        asserted_at=req.asserted_at,
+        pickup_zip=req.pickup_zip,
+        pickup_lat=req.pickup_lat,
+        pickup_lon=req.pickup_lon,
+        product_text=req.product_text,
+        track=req.track,
+        quantity=req.quantity,
+        quantity_unit=req.quantity_unit,
+        pallets_equivalent=req.pallets_equivalent or 1.0,
+        split_allowed=req.split_allowed,
+        delivery_available=req.delivery_available,
+        dietary_flags=req.dietary_flags,
+        temperature_requirement=req.temperature_requirement,
+        donor_deadline=req.donor_deadline,
+        status="OPEN",
+        created_at=datetime.now(timezone.utc),
+    )
+    save_posting(posting.model_dump())
+    return posting
+
+
+@app.get("/api/postings/{posting_id}", response_model=PostingResponse)
+def get_posting_endpoint(posting_id: str) -> PostingResponse:
+    """Get single live donor posting by ID."""
+    doc = get_posting(posting_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Posting {posting_id} not found")
+    return PostingResponse(**doc)
+
+
+@app.get("/api/postings", response_model=PostingListResponse)
+def list_postings_endpoint() -> PostingListResponse:
+    """List all live donor postings."""
+    docs = list_postings()
+    return PostingListResponse(
+        postings=[PostingResponse(**d) for d in docs],
+        total_count=len(docs),
+    )
+
+
+@app.post("/api/tickets", response_model=TicketResponse)
+def create_ticket_endpoint(req: CreateTicketRequest) -> TicketResponse:
+    """Create a ticket from starter posting or live donor posting."""
+    return create_ticket(
+        posting_id=req.posting_id,
+        posting_source=req.posting_source,
+        tenant_id=req.tenant_id,
+    )
+
+
+@app.get("/api/tickets", response_model=TicketListResponse)
+def list_tickets_endpoint() -> TicketListResponse:
+    """List all tickets."""
+    tickets = list_tickets_service()
+    return TicketListResponse(
+        tickets=tickets,
+        total_count=len(tickets),
+    )
+
+
+@app.get("/api/tickets/{ticket_id}", response_model=TicketResponse)
+def get_ticket_endpoint(ticket_id: str) -> TicketResponse:
+    """Get single ticket by ID."""
+    t = get_ticket_service(ticket_id)
+    if not t:
+        raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+    return t
+
+
+@app.post("/api/tickets/{ticket_id}/match", response_model=PlanResponse)
+def match_ticket_endpoint(ticket_id: str, req: Optional[RunTicketMatchRequest] = None) -> PlanResponse:
+    """Run Recall Guard, Matcher, Planner, Checker, and Fixer loop for a ticket."""
+    force_replan = req.force_replan if req else False
+    return execute_ticket_match(ticket_id=ticket_id, force_replan=force_replan)
+
+
+@app.get("/api/tickets/{ticket_id}/plans", response_model=PlanListResponse)
+def list_ticket_plans_endpoint(ticket_id: str) -> PlanListResponse:
+    """List all append-only plan versions for a ticket, ordered by version."""
+    plans = list_plans(ticket_id)
+    return PlanListResponse(
+        ticket_id=ticket_id,
+        plans=[PlanResponse(**p) for p in plans],
+    )
+
+
+@app.get("/api/plans/{plan_id}", response_model=PlanResponse)
+def get_plan_endpoint(plan_id: str) -> PlanResponse:
+    """Get single plan version by ID."""
+    plan = get_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Plan {plan_id} not found")
+    return PlanResponse(**plan)
+
+
+@app.get("/api/tickets/{ticket_id}/parameters", response_model=TicketParametersResponse)
+def get_ticket_parameters_endpoint(ticket_id: str) -> TicketParametersResponse:
+    """Get ticket-scoped matching parameters."""
+    params = get_ticket_parameters(ticket_id)
+    return TicketParametersResponse(
+        ticket_id=ticket_id,
+        parameters=params,
+    )
+
+
+@app.post("/api/tickets/{ticket_id}/parameters", response_model=TicketParametersResponse)
+def update_ticket_parameters_endpoint(
+    ticket_id: str,
+    req: UpdateTicketParametersRequest,
+) -> TicketParametersResponse:
+    """Update ticket-scoped matching parameters."""
+    params = update_ticket_parameters(ticket_id, req.parameters)
+    return TicketParametersResponse(
+        ticket_id=ticket_id,
+        parameters=params,
+    )
+

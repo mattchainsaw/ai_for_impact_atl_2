@@ -262,20 +262,20 @@ class PostingResponse(BaseContractModel):
     pickup_address: str
     address_type: AddressType
     coordinator_asserted_org_dock: bool
-    asserted_by_role: Role
-    asserted_at: datetime
+    asserted_by_role: Role = Role.COORDINATOR
+    asserted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     pickup_zip: str
     pickup_lat: Optional[float] = None
     pickup_lon: Optional[float] = None
     product_text: str
-    track: str
+    track: str = "perishable"
     quantity: float
     quantity_unit: QuantityUnit
     pallets_equivalent: float
-    split_allowed: bool
-    delivery_available: bool
+    split_allowed: bool = True
+    delivery_available: bool = False
     dietary_flags: List[str] = Field(default_factory=list)
-    temperature_requirement: str
+    temperature_requirement: str = "refrigerated"
     donor_deadline: datetime
     status: str = "OPEN"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
